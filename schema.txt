@@ -1,0 +1,725 @@
+model User {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  username String
+  email    String @unique
+
+  googleId    String?
+  linkedinId  String?
+  microsoftId String?
+
+  profilePic         String?
+  profilePicOriginal String?
+  profilePicCrop     Json?
+
+  coverPhoto         String?
+  coverPhotoOriginal String?
+  coverPhotoCrop     Json?
+
+  title    String?
+  location String?
+  about    String?
+
+  jobApplications JobApplication[]
+
+  connections Int @default(0)
+
+  accountVerificationStatus AccountVerificationStatus @default(UNSUBMITTED)
+  accountVerificationRole   AccountVerificationRole?
+
+  experience           Experience[]
+  education            Education[]
+  posts                Post[]
+  verificationRequests AccountVerificationRequest[]
+  communityManagements CommunityManager[]
+  communityFollows     CommunityFollow[]
+
+  // For Connection
+  sentConnectionRequests     ConnectionRequest[] @relation("SentConnectionRequests")
+  receivedConnectionRequests ConnectionRequest[] @relation("ReceivedConnectionRequests")
+
+  phoneNo     String?
+  phonePublic Boolean @default(false)
+  emailPublic Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  notificationsReceived Notification[] @relation("NotificationUser")
+  notificationsSent     Notification[] @relation("NotificationFromUser")
+
+  reportsMade       Report[]           @relation("ReportsMade")
+  moderationNotices ModerationNotice[]
+
+  accountStatus  UserAccountStatus @default(ACTIVE)
+  suspendedUntil DateTime?
+  warningCount   Int               @default(0)
+}
+
+enum UserAccountStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum AccountVerificationStatus {
+  UNSUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AccountVerificationRole {
+  STUDENT
+  ALUMNI
+  STAFF
+  LECTURER
+}
+
+model AccountVerificationRequest {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role         AccountVerificationRole
+  documentType String
+  documents    Json
+  note         String?
+
+  status     AccountVerificationStatus @default(PENDING)
+  reviewedBy String?
+  reviewNote String?
+  reviewedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  history AccountVerificationHistory[]
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+model AccountVerificationHistory {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  requestId String                     @db.ObjectId
+  request   AccountVerificationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  action AccountVerificationStatus
+  actor  String
+  note   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([requestId, createdAt])
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  FREELANCE
+  INTERNSHIP
+}
+
+enum ActorType {
+  USER
+  COMMUNITY
+}
+
+enum CommunityStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model Community {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  name String
+  slug String @unique
+
+  about    String?
+  location String?
+
+  profilePic         String?
+  profilePicOriginal String?
+  profilePicCrop     Json?
+
+  coverPhoto         String?
+  coverPhotoOriginal String?
+  coverPhotoCrop     Json?
+
+  status CommunityStatus @default(ACTIVE)
+
+  createdByAdminId String? @db.ObjectId
+
+  managers  CommunityManager[]
+  followers CommunityFollow[]
+  posts     Post[]
+  comments  Comment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  postInteractions            PostInteraction[]
+  notificationsReceivedAsPage Notification[]    @relation("NotificationRecipientCommunity")
+  notificationsSentAsPage     Notification[]    @relation("NotificationFromCommunity")
+}
+
+model CommunityManager {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  communityId String    @db.ObjectId
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([communityId, userId])
+  @@index([userId])
+}
+
+model CommunityFollow {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  communityId String    @db.ObjectId
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([communityId, userId])
+  @@index([userId])
+}
+
+model Experience {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  title          String
+  employmentType EmploymentType
+  company        String
+
+  startMonth Int
+  startYear  Int
+
+  endMonth Int?
+  endYear  Int?
+
+  isCurrent Boolean @default(false)
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model Education {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  school       String
+  degree       String
+  fieldOfStudy String
+
+  startMonth Int
+  startYear  Int
+
+  endMonth Int
+  endYear  Int
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model Post {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  user       User    @relation(fields: [userId], references: [id])
+  userId     String  @db.ObjectId
+  username   String
+  profilePic String?
+
+  actorType ActorType @default(USER)
+
+  communityId String?    @db.ObjectId
+  community   Community? @relation(fields: [communityId], references: [id], onDelete: SetNull)
+
+  postType   String
+  visibility String?
+
+  title      String?
+  content    String
+  media      Json? // [{ url, type, name, mimetype, size }]
+  mediaTypes String[] @default([])
+  hasLinks   Boolean  @default(false)
+  links      Json?
+
+  commentsDisabled Boolean @default(false)
+  commentCount     Int     @default(0)
+  likeCount        Int     @default(0)
+  shareCount       Int     @default(0)
+  savedCount       Int     @default(0)
+
+  // Poll fields (only when postType === "poll")
+  pollOptions String[] // ["Option 1", "Option 2", "Option 3"]
+  pollEndsAt  DateTime? // When poll closes
+  pollVotes   Json? // { "0": ["userId1"], "1": ["userId2", "userId3"] }
+  // pollSettings   Json?     // { multipleChoice: false } - template for future features
+
+  jobPost JobPost?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  comments          Comment[]
+  interactions      PostInteraction[]
+  moderationNotices ModerationNotice[]
+  sharedMessages    Message[]          @relation("SharedPostMessages")
+
+  moderationStatus PostModerationStatus @default(VISIBLE)
+  removedAt        DateTime?
+}
+
+enum PostModerationStatus {
+  VISIBLE
+  REMOVED
+}
+
+model Comment {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  // user info (denormalized)
+  userId     String @db.ObjectId
+  username   String
+  profilePic String
+
+  actorType ActorType @default(USER)
+
+  communityId String?    @db.ObjectId
+  community   Community? @relation(fields: [communityId], references: [id], onDelete: SetNull)
+
+  // comment fields
+  content String
+  media   Json?
+
+  likeCount Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relation to post
+  postId String @db.ObjectId
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  // replies (self-relation)
+  parentId String? @db.ObjectId
+
+  depth   Int       @default(0)
+  parent  Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies Comment[] @relation("CommentReplies")
+}
+
+enum RequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELED
+}
+
+model ConnectionRequest {
+  id         String        @id @default(auto()) @map("_id") @db.ObjectId
+  fromUserId String        @db.ObjectId
+  toUserId   String        @db.ObjectId
+  status     RequestStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relations to your existing User model
+  fromUser User @relation("SentConnectionRequests", fields: [fromUserId], references: [id])
+  toUser   User @relation("ReceivedConnectionRequests", fields: [toUserId], references: [id])
+
+  @@index([fromUserId, toUserId])
+  @@index([toUserId, status])
+  @@index([fromUserId, status])
+}
+
+model Connection {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  // store the pair in a consistent order so (A,B) == (B,A)
+  userAId String @db.ObjectId
+  userBId String @db.ObjectId
+
+  createdAt DateTime @default(now())
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+}
+
+model PostInteraction {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  postId String @db.ObjectId
+
+  actorType ActorType @default(USER)
+
+  communityId String?    @db.ObjectId
+  community   Community? @relation(fields: [communityId], references: [id], onDelete: SetNull)
+
+  type      PostInteractionType
+  createdAt DateTime            @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([actorType, userId, postId, type])
+  @@index([actorType, communityId, postId, type])
+  @@index([postId, type])
+}
+
+enum PostInteractionType {
+  LIKE
+  SHARE
+  SAVED
+}
+
+enum NotificationType {
+  CONNECTION_REQUEST
+  CONNECTION_ACCEPTED
+  POST_LIKED
+  POST_COMMENTED
+  COMMENT_REPLIED
+  POST_SHARED
+  POST_VOTED
+  JOB_APPLICATION
+}
+
+model Notification {
+  id         String @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String @db.ObjectId
+  fromUserId String @db.ObjectId
+
+  recipientActorType   ActorType @default(USER)
+  recipientCommunityId String?   @db.ObjectId
+
+  fromActorType   ActorType @default(USER)
+  fromCommunityId String?   @db.ObjectId
+
+  type     NotificationType
+  entityId String?
+  isRead   Boolean          @default(false)
+
+  createdAt DateTime @default(now())
+
+  user               User       @relation("NotificationUser", fields: [userId], references: [id])
+  fromUser           User       @relation("NotificationFromUser", fields: [fromUserId], references: [id])
+  recipientCommunity Community? @relation("NotificationRecipientCommunity", fields: [recipientCommunityId], references: [id], onDelete: SetNull)
+  fromCommunity      Community? @relation("NotificationFromCommunity", fields: [fromCommunityId], references: [id], onDelete: SetNull)
+
+  @@index([recipientActorType, userId, isRead])
+  @@index([recipientActorType, recipientCommunityId, isRead])
+}
+
+model Conversation {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  userAId String @db.ObjectId
+  userBId String @db.ObjectId
+
+  lastMessageAt       DateTime?
+  lastMessageText     String?
+  lastMessageSenderId String?   @db.ObjectId
+
+  userALastReadAt DateTime?
+  userBLastReadAt DateTime?
+
+  userAUnreadCount Int @default(0)
+  userBUnreadCount Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages Message[]
+
+  @@unique([userAId, userBId])
+  @@index([userAId, lastMessageAt])
+  @@index([userBId, lastMessageAt])
+}
+
+model Message {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  conversationId String       @db.ObjectId
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  senderId   String @db.ObjectId
+  receiverId String @db.ObjectId
+
+  text  String?
+  media Json?
+  kind  MessageKind @default(TEXT)
+
+  sharedPostId String? @db.ObjectId
+  sharedPost   Post?   @relation("SharedPostMessages", fields: [sharedPostId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@index([receiverId, createdAt])
+  @@index([sharedPostId])
+}
+
+enum MessageKind {
+  TEXT
+  SHARED_POST
+}
+
+// One client-generated key represents one intentional multi-recipient share.
+// The unique key makes retries safe while still allowing later shares.
+model InternalShareAction {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  idempotencyKey String   @unique
+  senderId       String   @db.ObjectId
+  postId         String   @db.ObjectId
+  recipientIds   String[] @db.ObjectId
+  createdAt      DateTime @default(now())
+
+  @@index([senderId, createdAt])
+  @@index([postId, createdAt])
+}
+
+enum JobStatus {
+  OPEN
+  CLOSED
+  FILLED
+}
+
+enum JobLocationType {
+  ONSITE
+  REMOTE
+  HYBRID
+}
+
+model JobPost {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  // 1–1 relation with Post
+  postId String @unique @db.ObjectId
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  // core job info
+  jobTitle     String
+  companyName  String?
+  location     String?
+  locationType JobLocationType?
+
+  jobDetails String?
+  jobSkills  JobSkill[]
+
+  employmentType EmploymentType
+
+  positionsAvailable Int @default(1) // 
+  positionsFilled    Int @default(0)
+
+  // compensation
+  salaryMin      Int?
+  salaryMax      Int?
+  salaryCurrency String?
+
+  // logistics
+  deadline DateTime?
+  status   JobStatus @default(OPEN)
+
+  // application handling
+  applyUrl           String? // if external
+  allowExternalApply Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications JobApplication[]
+}
+
+enum ApplicationStatus {
+  APPLIED
+  SHORTLISTED
+  REJECTED
+}
+
+enum AnnouncementStatus {
+  ACTIVE
+  SCHEDULED
+  EXPIRED
+}
+
+model Announcement {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  title       String
+  description String
+
+  startDate DateTime
+  endDate   DateTime?
+
+  thumbnailBlobName    String
+  contentImageBlobName String?
+
+  status AnnouncementStatus @default(ACTIVE)
+
+  createdByAdminId String? @db.ObjectId
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([createdByAdminId])
+}
+
+model JobApplication {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  jobPostId String  @db.ObjectId
+  jobPost   JobPost @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
+
+  applicantId String @db.ObjectId
+  applicant   User   @relation(fields: [applicantId], references: [id])
+
+  resumeLetter   String?
+  expectedSalary Int?
+  availability   String?
+  resumeBlobName String
+
+  status ApplicationStatus @default(APPLIED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([jobPostId, applicantId])
+  @@index([jobPostId])
+  @@index([applicantId])
+}
+
+model Skill {
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  name      String     @unique
+  jobSkills JobSkill[]
+}
+
+model JobSkill {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  jobPostId String @db.ObjectId
+  skillId   String @db.ObjectId
+
+  jobPost JobPost @relation(fields: [jobPostId], references: [id])
+  skill   Skill   @relation(fields: [skillId], references: [id])
+
+  @@unique([jobPostId, skillId])
+  @@index([skillId])
+}
+
+model Report {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  reporterId String @db.ObjectId
+  reporter   User   @relation("ReportsMade", fields: [reporterId], references: [id])
+
+  targetType ReportTargetType
+  targetId   String           @db.ObjectId
+
+  reason      ReportReason
+  description String?
+
+  // snapshots
+  reportedUsername   String?
+  reportedProfilePic String?
+  reportedTitle      String?
+  reportedContent    String?
+  reportedMedia      Json?
+  reportedLinks      Json?
+
+  status ReportStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reporterId, targetType, targetId])
+  @@index([targetType, targetId])
+  @@index([reporterId])
+  @@index([status])
+}
+
+enum ReportTargetType {
+  POST
+  USER
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  VIOLENCE
+  NUDITY
+  SCAM
+  MISINFORMATION
+  FAKE_ACCOUNT
+  IMPERSONATION
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  REVIEWED
+  DISMISSED
+  ACTION_TAKEN
+}
+
+model ModerationAction {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  targetType ReportTargetType
+  targetId   String           @db.ObjectId
+  action     AdminActionType
+  note       String?
+
+  durationDays Int?
+  createdAt    DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+enum AdminActionType {
+  MARK_UNDER_REVIEW
+  REOPEN_CASE
+  DISMISS_REPORTS
+  KEEP_POST
+  WARN_USER
+  SUSPEND_USER
+  BAN_USER
+  REMOVE_POST
+  REMOVE_POST_WARN_AUTHOR
+}
+
+model ModerationNotice {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  recipientId String @db.ObjectId
+  recipient   User   @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  action AdminActionType
+  reason String?
+
+  targetPostId String? @db.ObjectId
+  targetPost   Post?   @relation(fields: [targetPostId], references: [id], onDelete: SetNull)
+
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([recipientId, isRead, createdAt])
+}
