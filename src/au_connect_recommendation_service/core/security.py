@@ -5,9 +5,6 @@ from au_connect_recommendation_service.core.env import INTERNAL_API_KEY
 
 
 async def verifyServiceKey(x_internal_service_key: str | None = Header(default=None)):
-    print(f"Service Key read: {x_internal_service_key}")
-    print(f"Internal Key read: {INTERNAL_API_KEY}")
-
     if not x_internal_service_key:
         raise HTTPException(status_code=401, detail="Missing internal key")
 
