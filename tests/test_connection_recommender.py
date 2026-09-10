@@ -35,6 +35,7 @@ def make_user(user_id: ObjectId) -> User:
         username=str(user_id),
         title=None,
         location=None,
+        about=None,
         account_status=AccountStatus.ACTIVE,
         experience=[],
         education=[],

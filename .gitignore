@@ -18,3 +18,13 @@ wheels/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# macOS
+.DS_Store
+
+# Coverage reports
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
