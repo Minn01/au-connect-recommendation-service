@@ -20,6 +20,9 @@ class EmbeddingModelTests(unittest.TestCase):
         chef_similarity = embeddings[0] @ embeddings[2]
         self.assertGreater(programmer_similarity, chef_similarity)
 
+        print(f"\nSimilarity with Programmer: {programmer_similarity:.4f}")
+        print(f"Similarity with Chef:       {chef_similarity:.4f}")
+
 
 if __name__ == "__main__":
     unittest.main()

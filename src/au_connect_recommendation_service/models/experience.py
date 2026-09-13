@@ -23,8 +23,8 @@ def map_experience(doc: dict) -> Experience:
         company=doc["company"],
         start_month=doc["startMonth"],
         start_year=doc["startYear"],
-        end_month=doc["endMonth"],
-        end_year=doc["endYear"],
-        is_current=doc["isCurrent"],
-        user_id=doc["userId"],
+        end_month=doc.get("endMonth"),
+        end_year=doc.get("endYear"),
+        is_current=doc.get("isCurrent", False),
+        user_id=str(doc["userId"]),
     )

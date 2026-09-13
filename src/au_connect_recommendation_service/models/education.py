@@ -24,5 +24,5 @@ def map_education(doc: dict) -> Education:
         start_year=doc["startYear"],
         end_month=doc["endMonth"],
         end_year=doc["endYear"],
-        user_id=doc["userId"],
+        user_id=str(doc["userId"]),
     )

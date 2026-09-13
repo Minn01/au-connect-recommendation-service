@@ -1,8 +1,8 @@
 from functools import cache
 
+from au_connect_recommendation_service.core.constants import EMBEDDING_MODEL_NAME
 from sentence_transformers import SentenceTransformer
 
-EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-small"
 
 
 @cache

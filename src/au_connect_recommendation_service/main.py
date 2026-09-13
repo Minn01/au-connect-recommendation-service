@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.concurrency import run_in_threadpool
 
 from au_connect_recommendation_service.core.embedding_model import (
     get_embedding_model,
@@ -14,7 +15,7 @@ from au_connect_recommendation_service.routes.connections import (
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-    get_embedding_model()
+    await run_in_threadpool(get_embedding_model)
     yield
 
 

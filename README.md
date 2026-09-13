@@ -66,3 +66,52 @@ The technical implementation and recommendation approach may change as the proje
 **AU Connect — Recommendation Service**
 
 Helping AU Connect users discover content that is relevant to them.
+
+## Hybrid profile similarity
+
+Profile similarity uses title (25%), about (25%), experience titles (25%),
+education (15%), and location (10%). Education compares each pair of records
+using field of study (60%), degree (20%), and school (20%), then averages the
+best matches in both directions. Experience titles use the same list matching.
+Company names are not compared. Text and record duplicates are removed after
+trimming and case folding. Degree aliases are intentionally limited to explicit
+variants in `DEGREE_ALIASES`; unknown degrees use normalized exact matching.
+
+Each request batch-encodes unique nonempty semantic texts, including the current
+user's, through the existing model loader in a worker thread. Normalized vectors
+are reused for dot-product cosine scoring. Both sides use `query: ` per the
+[E5 model guidance](https://huggingface.co/intfloat/multilingual-e5-small#faq).
+Negative cosine scores are clipped to zero and scores are bounded by one.
+There is no persistent embedding cache or universal match threshold.
+
+Missing components return `None`; a comparable mismatch returns zero. Weights
+are redistributed only over available components (also within education pairs).
+Entries with no comparable fields are omitted from list matching. With no
+comparable information, the public async function returns `0.0`.
+`profile_similarity_breakdown()` exposes component scores, effective weights,
+available-weight coverage, and the final score for internal debugging only.
+Coverage measures available top-level weights, not completeness within records.
+Sparse profiles can score highly despite limited evidence; scores are not
+probabilities.
+
+Experience and education are loaded from their separate MongoDB collections in
+two batch queries for the current user and all candidates. The outer recommendation
+score remains 60% mutual connections and 40% profile similarity.
+
+Run the fast mocked tests separately from model inference:
+
+```bash
+uv run python -m unittest discover -s tests -p 'test_similarity.py' -v
+uv run python -m unittest discover -s tests -p 'test_connection_recommender.py' -v
+```
+
+Run the real-model profile example and print both component breakdowns:
+
+```bash
+uv run python -m unittest discover -s tests/integration -v
+```
+
+The example asserts only that a software profile ranks above a culinary profile,
+not exact scores. It uses the existing model cache (or downloads the model if
+needed). The existing `tests/test_embedding_model.py` is another real-model test;
+plain discovery of the entire `tests` directory includes that test.

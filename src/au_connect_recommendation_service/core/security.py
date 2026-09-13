@@ -3,7 +3,7 @@ import secrets
 
 from au_connect_recommendation_service.core.env import INTERNAL_API_KEY
 
-
+# checks the header for the internal key used to verify between the two apps
 async def verifyServiceKey(x_internal_service_key: str | None = Header(default=None)):
     if not x_internal_service_key:
         raise HTTPException(status_code=401, detail="Missing internal key")
