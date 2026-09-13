@@ -1,249 +1,132 @@
-import os
+import threading
 import unittest
-from unittest.mock import AsyncMock, patch
-
-os.environ.setdefault("MONGODB_URI", "mongodb://localhost:27017")
-
-from bson import ObjectId
+from dataclasses import replace
+from unittest.mock import Mock, patch
 
 from au_connect_recommendation_service.enums.account_status import AccountStatus
+from au_connect_recommendation_service.models.education import Education
+from au_connect_recommendation_service.models.experience import Experience
 from au_connect_recommendation_service.models.user import User
-from au_connect_recommendation_service.services import connection_recommender
+from au_connect_recommendation_service.services import similarity as sim
 
 
-class FakeCursor:
-    def __init__(self, documents):
-        self.documents = documents
-
-    async def to_list(self, length=None):
-        return self.documents if length is None else self.documents[:length]
+def user(**fields):
+    defaults = dict(id="one", username="one", title=None, about=None, location=None,
+                    account_status=AccountStatus.ACTIVE, experience=[], education=[])
+    return User(**(defaults | fields))
 
 
-class FakeCollection:
-    def __init__(self, documents):
-        self.documents = documents
-        self.queries = []
-
-    def find(self, query):
-        self.queries.append(query)
-        return FakeCursor(self.documents)
+def experience(title, company="Company"):
+    return Experience("job", title, "FULL_TIME", company, 1, 2020, None, None, True, "one")
 
 
-def make_user(user_id: ObjectId) -> User:
-    return User(
-        id=str(user_id),
-        username=str(user_id),
-        title=None,
-        location=None,
-        about=None,
-        account_status=AccountStatus.ACTIVE,
-        experience=[],
-        education=[],
-    )
+def education(subject="", degree="", school=""):
+    return Education("study", school, degree, subject, 1, 2016, 1, 2020, "one")
 
 
-class MutualConnectionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_counts_mutual_connections_in_both_storage_directions(self):
-        candidate_one = ObjectId()
-        candidate_two = ObjectId()
-        mutual_one = ObjectId()
-        mutual_two = ObjectId()
-        not_mutual = ObjectId()
-        connections = FakeCollection(
-            [
-                {"userAId": mutual_one, "userBId": candidate_one},
-                {"userAId": candidate_one, "userBId": mutual_two},
-                {"userAId": candidate_two, "userBId": mutual_one},
-                {"userAId": candidate_two, "userBId": not_mutual},
-            ]
+class SimilarityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_and_empty_fields_do_not_load_model(self):
+        with patch.object(sim, "get_embedding_model") as loader:
+            self.assertEqual(await sim.calculate_profile_similarity(user(), user()), 0.0)
+            loader.assert_not_called()
+        result = sim.profile_similarity_breakdown(user(), user(), {})
+        self.assertTrue(all(value is None for value in result["component_scores"].values()))
+        self.assertEqual(result["available_weight_coverage"], 0)
+        self.assertEqual(sum(result["effective_weights"].values()), 0)
+
+    async def test_batch_unique_texts_prefix_normalization_and_offloading(self):
+        main_thread = threading.get_ident()
+        def encode(texts, **kwargs):
+            self.assertNotEqual(threading.get_ident(), main_thread)
+            return [[1.0, 0.0] for text in texts]
+        model = Mock()
+        model.encode.side_effect = encode
+        first = user(title=" Developer ", about=" ", experience=[experience("DEVELOPER")],
+                     education=[education("Computing")])
+        second = user(title="developer", about="Software")
+        with patch.object(sim, "get_embedding_model", return_value=model):
+            embeddings = await sim.prepare_profile_embeddings([first, second])
+            await sim.calculate_profile_similarity(first, second, embeddings)
+            await sim.calculate_profile_similarity(second, first, embeddings)
+        model.encode.assert_called_once_with(
+            ["query: computing", "query: developer", "query: software"],
+            normalize_embeddings=True, show_progress_bar=False,
         )
 
-        with patch.object(connection_recommender, "db", {"Connection": connections}):
-            counts = await connection_recommender.calculate_mutual_connections(
-                candidate_users=[make_user(candidate_one), make_user(candidate_two)],
-                current_user_connection_ids={str(mutual_one), str(mutual_two)},
-            )
+    async def test_async_two_argument_contract(self):
+        with patch.object(sim, "get_embedding_model") as loader:
+            loader.return_value.encode.return_value = [[1.0, 0.0]]
+            score = await sim.calculate_profile_similarity(user(title="a"), user(title="a"))
+        self.assertIsInstance(score, float)
+        self.assertEqual(score, 1.0)
 
-        self.assertEqual(counts, {str(candidate_one): 2, str(candidate_two): 1})
-        self.assertEqual(len(connections.queries), 1)
-        batch_query = connections.queries[0]["$or"]
-        self.assertEqual([set(query) for query in batch_query], [{"userAId"}, {"userBId"}])
-        self.assertTrue(all("$in" in next(iter(query.values())) for query in batch_query))
+    def test_missing_reweighting_keeps_genuine_zero(self):
+        first = user(title="a", location=" Bangkok ")
+        second = user(title="b", location="BANGKOK")
+        result = sim.profile_similarity_breakdown(first, second, {"a": [1, 0], "b": [0, 1]})
+        self.assertEqual(result["component_scores"]["title"], 0.0)
+        self.assertAlmostEqual(result["available_weight_coverage"], 0.35)
+        self.assertAlmostEqual(result["final_score"], 0.10 / 0.35)
+        self.assertAlmostEqual(sum(result["effective_weights"].values()), 1)
+        sparse = sim.profile_similarity_breakdown(user(location="x"), user(location="X"), {})
+        self.assertEqual(sparse["final_score"], 1)
+        self.assertEqual(sparse["available_weight_coverage"], 0.1)
 
-    async def test_returns_zero_counts_without_mutual_connections_or_candidates(self):
-        candidate = ObjectId()
-        connections = FakeCollection([])
+    def test_all_component_weights(self):
+        first = user(title="a", about="a", experience=[experience("a")],
+                     education=[education("a", "BSc", "school")], location="x")
+        second = replace(first, about="b", location="y")
+        result = sim.profile_similarity_breakdown(first, second, {"a": [1, 0], "b": [0, 1]})
+        self.assertEqual(result["effective_weights"], sim.PROFILE_WEIGHTS)
+        self.assertAlmostEqual(result["final_score"], 0.65)
 
-        with patch.object(connection_recommender, "db", {"Connection": connections}):
-            no_mutual_counts = await connection_recommender.calculate_mutual_connections(
-                candidate_users=[make_user(candidate)],
-                current_user_connection_ids=set(),
-            )
-            no_candidate_counts = await connection_recommender.calculate_mutual_connections(
-                candidate_users=[],
-                current_user_connection_ids={str(ObjectId())},
-            )
+    def test_exact_normalization_and_conservative_degrees(self):
+        self.assertEqual(sim.location_similarity(user(location=" X "), user(location="x")), 1)
+        self.assertIsNone(sim.location_similarity(user(location=" "), user(location="x")))
+        self.assertEqual(sim.degree_similarity(" B.Sc. ", "Bachelor of Science"), 1)
+        self.assertEqual(sim.degree_similarity("BSc", "Master of Science"), 0)
+        self.assertEqual(sim.degree_similarity("Bachelor", "Bachelor of Science"), 0)
+        self.assertEqual(sim.degree_similarity("Custom Degree", " custom degree "), 1)
+        self.assertIsNone(sim.degree_similarity("", "BSc"))
 
-        self.assertEqual(no_mutual_counts, {str(candidate): 0})
-        self.assertEqual(no_candidate_counts, {})
-        self.assertEqual(connections.queries, [])
+    def test_symmetric_mean_best_deduplicates_titles_ignores_company(self):
+        first = user(experience=[experience("a"), experience(" A "), experience("b")])
+        second = user(experience=[experience("a", "Different company")])
+        vectors = {"a": [1, 0], "b": [0, 1]}
+        self.assertEqual(sim.experience_similarity(first, second, vectors), 0.75)
+        self.assertEqual(sim.experience_similarity(second, first, vectors), 0.75)
+        self.assertIsNone(sim.experience_similarity(user(experience=[experience(" ")]), second, vectors))
 
+    def test_education_weights_and_record_pairing(self):
+        vectors = {"computing": [1, 0], "cooking": [0, 1]}
+        first = user(education=[education("computing", "BSc", "A")])
+        second = user(education=[education("computing", "MSc", "B"),
+                                 education("cooking", "BSc", "A")])
+        # Best pair is .6, reverse best scores are .6 and .4: (.6 + .5) / 2.
+        self.assertAlmostEqual(sim.education_similarity(first, second, vectors), 0.55)
+        self.assertAlmostEqual(sim.education_similarity(second, first, vectors), 0.55)
+        self.assertEqual(sim.education_similarity(first, replace(first, education=first.education * 2), vectors), 1)
 
-class ProfileRelationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_loads_experience_and_education_for_all_users_in_two_queries(self):
-        first_id = ObjectId()
-        second_id = ObjectId()
-        experience_id = ObjectId()
-        education_id = ObjectId()
-        users = [make_user(first_id), make_user(second_id)]
-        experiences = FakeCollection(
-            [
-                {
-                    "_id": experience_id,
-                    "title": "Software Engineer",
-                    "employmentType": "FULL_TIME",
-                    "company": "AU Connect",
-                    "startMonth": 1,
-                    "startYear": 2025,
-                    "endMonth": None,
-                    "endYear": None,
-                    "isCurrent": True,
-                    "userId": first_id,
-                }
-            ]
-        )
-        educations = FakeCollection(
-            [
-                {
-                    "_id": education_id,
-                    "school": "Assumption University",
-                    "degree": "BSc",
-                    "fieldOfStudy": "Computer Science",
-                    "startMonth": 8,
-                    "startYear": 2022,
-                    "endMonth": 5,
-                    "endYear": 2026,
-                    "userId": second_id,
-                }
-            ]
-        )
+    def test_study_subject_lists_and_partial_entries(self):
+        vectors = {"a": [1, 0], "b": [0, 1]}
+        first = user(education=[education("a"), education(" A "), education("b")])
+        second = user(education=[education("a")])
+        self.assertEqual(sim.education_similarity(first, second, vectors), 0.75)
+        self.assertEqual(sim.education_similarity(user(education=[education(school=" A ")]),
+                                                user(education=[education(school="a")]), {}), 1)
+        self.assertIsNone(sim.education_similarity(user(education=[education()]), second, vectors))
+        self.assertIsNone(sim.education_similarity(user(education=[education(degree="BSc")]), second, vectors))
 
-        with patch.object(
-            connection_recommender,
-            "db",
-            {"Experience": experiences, "Education": educations},
-        ):
-            await connection_recommender.load_profile_relations(users)
-
-        self.assertEqual(len(experiences.queries), 1)
-        self.assertEqual(len(educations.queries), 1)
-        self.assertEqual(
-            set(experiences.queries[0]["userId"]["$in"]),
-            {first_id, second_id},
-        )
-        self.assertEqual(users[0].experience[0].id, str(experience_id))
-        self.assertEqual(users[0].experience[0].user_id, str(first_id))
-        self.assertEqual(users[0].experience[0].title, "Software Engineer")
-        self.assertEqual(users[0].experience[0].end_month, None)
-        self.assertEqual(users[1].education[0].id, str(education_id))
-        self.assertEqual(users[1].education[0].user_id, str(second_id))
-        self.assertEqual(users[1].education[0].field_of_study, "Computer Science")
-        self.assertEqual(users[0].education, [])
-        self.assertEqual(users[1].experience, [])
-
-
-class RecommendationPipelineTests(unittest.IsolatedAsyncioTestCase):
-    async def test_no_candidates_skips_embeddings(self):
-        current = make_user(ObjectId())
-        with (
-            patch.object(connection_recommender, "get_current_user", new=AsyncMock(return_value=current)),
-            patch.object(connection_recommender, "get_connected_users", new=AsyncMock(return_value=set())),
-            patch.object(connection_recommender, "get_pending_request_users", new=AsyncMock(return_value=set())),
-            patch.object(connection_recommender, "get_candidate_users", new=AsyncMock(return_value=[])),
-            patch.object(connection_recommender, "load_profile_relations", new=AsyncMock()) as load_relations,
-            patch.object(connection_recommender, "prepare_profile_embeddings", new=AsyncMock()) as prepare,
-        ):
-            self.assertEqual(await connection_recommender.get_connection_recommendations(current.id), [])
-        load_relations.assert_not_awaited()
-        prepare.assert_not_awaited()
-
-    async def test_excludes_connected_and_pending_users_and_respects_limit(self):
-        current = make_user(ObjectId())
-        connected_user_id = str(ObjectId())
-        pending_user_id = str(ObjectId())
-        candidates = [make_user(ObjectId()), make_user(ObjectId()), make_user(ObjectId())]
-        profile_scores = {
-            candidates[0].id: 0.1,
-            candidates[1].id: 0.8,
-            candidates[2].id: 0.3,
-        }
-
-        with (
-            patch.object(
-                connection_recommender,
-                "load_profile_relations",
-                new=AsyncMock(),
-            ) as load_relations,
-            patch.object(
-                connection_recommender,
-                "prepare_profile_embeddings",
-                new=AsyncMock(return_value={}),
-            ) as prepare_embeddings,
-            patch.object(
-                connection_recommender,
-                "get_current_user",
-                new=AsyncMock(return_value=current),
-            ),
-            patch.object(
-                connection_recommender,
-                "get_connected_users",
-                new=AsyncMock(return_value={connected_user_id}),
-            ) as get_connected_users,
-            patch.object(
-                connection_recommender,
-                "get_pending_request_users",
-                new=AsyncMock(return_value={pending_user_id}),
-            ),
-            patch.object(
-                connection_recommender,
-                "get_candidate_users",
-                new=AsyncMock(return_value=candidates),
-            ) as get_candidate_users,
-            patch.object(
-                connection_recommender,
-                "calculate_mutual_connections",
-                new=AsyncMock(
-                    return_value={
-                        candidates[0].id: 1,
-                        candidates[1].id: 2,
-                        candidates[2].id: 0,
-                    }
-                ),
-            ),
-            patch.object(
-                connection_recommender,
-                "calculate_profile_similarity",
-                new=AsyncMock(
-                    side_effect=lambda current_user, candidate, embeddings: profile_scores[candidate.id]
-                ),
-            ),
-        ):
-            recommendations = await connection_recommender.get_connection_recommendations(
-                user_id=current.id,
-                limit=2,
-            )
-
-        load_relations.assert_awaited_once_with([current, *candidates])
-        prepare_embeddings.assert_awaited_once_with([current, *candidates])
-        self.assertEqual(get_connected_users.await_count, 1)
-        self.assertEqual(
-            get_candidate_users.await_args.kwargs["excluded_user_ids"],
-            {connected_user_id, pending_user_id},
-        )
-        self.assertEqual([item["user"].id for item in recommendations], [candidates[1].id, candidates[0].id])
-        self.assertEqual(len(recommendations), 2)
+    def test_semantic_score_bounds_and_missing(self):
+        vectors = {"a": [1, 0], "b": [-1, 0], "c": [1.00000001, 0]}
+        self.assertEqual(sim.semantic_text_similarity("a", "b", vectors), 0)
+        self.assertEqual(sim.semantic_text_similarity("a", "c", vectors), 1)
+        self.assertIsNone(sim.semantic_text_similarity(" ", "a", vectors))
+        for title in vectors:
+            result = sim.profile_similarity_breakdown(user(title="a"), user(title=title), vectors)
+            self.assertGreaterEqual(result["final_score"], 0)
+            self.assertLessEqual(result["final_score"], 1)
 
 
 if __name__ == "__main__":
     unittest.main()
-

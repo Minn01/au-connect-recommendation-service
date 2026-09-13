@@ -77,12 +77,14 @@ Company names are not compared. Text and record duplicates are removed after
 trimming and case folding. Degree aliases are intentionally limited to explicit
 variants in `DEGREE_ALIASES`; unknown degrees use normalized exact matching.
 
-Each request batch-encodes unique nonempty semantic texts, including the current
-user's, through the existing model loader in a worker thread. Normalized vectors
+Profile embeddings are stored in MongoDB's `UserEmbedding` collection. A
+recommendation request loads all required documents in one query, reuses documents
+whose model identity and profile source hash still match, and batch-encodes only
+missing or stale users. Model inference runs in a worker thread. Normalized vectors
 are reused for dot-product cosine scoring. Both sides use `query: ` per the
 [E5 model guidance](https://huggingface.co/intfloat/multilingual-e5-small#faq).
 Negative cosine scores are clipped to zero and scores are bounded by one.
-There is no persistent embedding cache or universal match threshold.
+There is no universal match threshold.
 
 Missing components return `None`; a comparable mismatch returns zero. Weights
 are redistributed only over available components (also within education pairs).
@@ -97,6 +99,30 @@ probabilities.
 Experience and education are loaded from their separate MongoDB collections in
 two batch queries for the current user and all candidates. The outer recommendation
 score remains 60% mutual connections and 40% profile similarity.
+
+The main app should request a refresh after saving a user's title, about,
+experience, or education:
+
+```http
+PUT /internal/users/{user_id}/embedding
+x-internal-service-key: <INTERNAL_API_KEY>
+```
+
+The endpoint validates that the user exists and returns `202 Accepted` after
+scheduling a background refresh. Repeated refreshes are idempotent when the
+normalized profile hash and embedding model identity are unchanged. Profile
+updates are eventually consistent while the background task runs.
+
+Backfill existing active users in bounded batches:
+
+```bash
+uv run python scripts/backfill_user_embeddings.py --batch-size 100
+```
+
+The service creates a unique index on `UserEmbedding.userId` at startup. The
+authoritative Prisma schema in the main app should also define `@@index([userId])`
+on `Experience` and `Education`; `schema.txt` in this repository is only a schema
+reference and is not modified by this service.
 
 Run the fast mocked tests separately from model inference:
 

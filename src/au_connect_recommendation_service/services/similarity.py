@@ -60,6 +60,11 @@ async def prepare_profile_embeddings(users: Iterable[User]) -> Embeddings:
         texts.extend([user.title, user.about])
         texts.extend(entry.title for entry in user.experience)
         texts.extend(entry.field_of_study for entry in user.education)
+    return await encode_normalized_texts(texts)
+
+
+async def encode_normalized_texts(texts: Iterable[str | None]) -> Embeddings:
+    """Normalize and batch-encode text without blocking the async event loop."""
     unique = _unique_texts(texts)
     if not unique:
         return {}

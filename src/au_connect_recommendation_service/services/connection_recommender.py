@@ -1,14 +1,15 @@
-import asyncio
-
 from bson import ObjectId
 
 from au_connect_recommendation_service.db.mongodb import db
-from au_connect_recommendation_service.models.education import map_education
-from au_connect_recommendation_service.models.experience import map_experience
 from au_connect_recommendation_service.models.user import User, map_user
+from au_connect_recommendation_service.services.profile_embeddings import (
+    prepare_persistent_profile_embeddings as prepare_profile_embeddings,
+)
 from au_connect_recommendation_service.services.similarity import (
     calculate_profile_similarity,
-    prepare_profile_embeddings,
+)
+from au_connect_recommendation_service.services.user_profiles import (
+    load_profile_relations as load_user_profile_relations,
 )
 
 
@@ -128,35 +129,7 @@ async def get_candidate_users(
 
 
 async def load_profile_relations(users: list[User]) -> None:
-    """Load Experience and Education documents for all users in two queries."""
-    if not users:
-        return
-
-    users_by_id = {ObjectId(user.id): user for user in users}
-    user_ids = list(users_by_id)
-
-    experience_docs, education_docs = await asyncio.gather(
-        db["Experience"]
-        .find({"userId": {"$in": user_ids}})
-        .to_list(length=None),
-        db["Education"]
-        .find({"userId": {"$in": user_ids}})
-        .to_list(length=None),
-    )
-
-    for user in users:
-        user.experience = []
-        user.education = []
-
-    for doc in experience_docs:
-        user = users_by_id.get(doc["userId"])
-        if user is not None:
-            user.experience.append(map_experience(doc))
-
-    for doc in education_docs:
-        user = users_by_id.get(doc["userId"])
-        if user is not None:
-            user.education.append(map_education(doc))
+    await load_user_profile_relations(users, db)
 
 
 async def get_pending_request_users(user_id: str) -> set[str]:
