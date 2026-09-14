@@ -1,8 +1,8 @@
 import asyncio
-from collections.abc import Mapping
 from typing import Any
 
 from bson import ObjectId
+from pymongo.asynchronous.database import AsyncDatabase
 
 from au_connect_recommendation_service.models.education import map_education
 from au_connect_recommendation_service.models.experience import map_experience
@@ -11,7 +11,7 @@ from au_connect_recommendation_service.models.user import User, map_user
 
 async def load_profile_relations(
     users: list[User],
-    database: Mapping[str, Any],
+    database: AsyncDatabase[Any],
 ) -> None:
     """Load Experience and Education documents for all users in two queries."""
     if not users:
@@ -46,7 +46,7 @@ async def load_profile_relations(
 
 async def load_user_profile(
     user_id: ObjectId,
-    database: Mapping[str, Any],
+    database: AsyncDatabase[Any],
 ) -> User | None:
     user_doc = await database["User"].find_one({"_id": user_id})
     if user_doc is None:

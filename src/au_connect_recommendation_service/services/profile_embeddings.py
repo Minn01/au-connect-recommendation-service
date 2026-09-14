@@ -67,16 +67,24 @@ def embedding_sources(user: User) -> ProfileEmbeddingSources:
     return ProfileEmbeddingSources(
         title=normalize_text(user.title),
         about=normalize_text(user.about),
-        experience_titles=tuple(sorted({
-            normalized
-            for entry in user.experience
-            if (normalized := normalize_text(entry.title))
-        })),
-        education_fields_of_study=tuple(sorted({
-            normalized
-            for entry in user.education
-            if (normalized := normalize_text(entry.field_of_study))
-        })),
+        experience_titles=tuple(
+            sorted(
+                {
+                    normalized
+                    for entry in user.experience
+                    if (normalized := normalize_text(entry.title))
+                }
+            )
+        ),
+        education_fields_of_study=tuple(
+            sorted(
+                {
+                    normalized
+                    for entry in user.education
+                    if (normalized := normalize_text(entry.field_of_study))
+                }
+            )
+        ),
     )
 
 
@@ -128,8 +136,7 @@ def build_embedding_document(
             "title": _single_embedding(sources.title, vectors),
             "about": _single_embedding(sources.about, vectors),
             "experienceTitles": [
-                _single_embedding(text, vectors)
-                for text in sources.experience_titles
+                _single_embedding(text, vectors) for text in sources.experience_titles
             ],
             "educationFieldsOfStudy": [
                 _single_embedding(text, vectors)
@@ -161,7 +168,12 @@ def _stored_embedding_map(document: dict[str, Any]) -> dict[str, list[float]] | 
             return None
         text = entry.get("text")
         vector = entry.get("vector")
-        if not isinstance(text, str) or not text or not isinstance(vector, list) or not vector:
+        if (
+            not isinstance(text, str)
+            or not text
+            or not isinstance(vector, list)
+            or not vector
+        ):
             return None
         try:
             result[text] = [float(value) for value in vector]
@@ -193,9 +205,11 @@ async def ensure_profile_embeddings(users: list[User]) -> EmbeddingBatchResult:
         return EmbeddingBatchResult({}, frozenset())
 
     users_by_object_id = {ObjectId(user.id): user for user in users}
-    saved_documents = await db[COLLECTION_NAME].find(
-        {"userId": {"$in": list(users_by_object_id)}}
-    ).to_list(length=None)
+    saved_documents = (
+        await db[COLLECTION_NAME]
+        .find({"userId": {"$in": list(users_by_object_id)}})
+        .to_list(length=None)
+    )
     saved_by_user_id = {
         document["userId"]: document
         for document in saved_documents
@@ -258,9 +272,7 @@ async def ensure_profile_embeddings(users: list[User]) -> EmbeddingBatchResult:
 
     return EmbeddingBatchResult(
         embeddings=combined,
-        regenerated_user_ids=frozenset(
-            str(object_id) for object_id in stale_user_ids
-        ),
+        regenerated_user_ids=frozenset(str(object_id) for object_id in stale_user_ids),
     )
 
 
@@ -281,6 +293,7 @@ async def refresh_user_embedding(user_id: str) -> bool:
         raise UserProfileNotFoundError(user_id)
 
     result = await ensure_profile_embeddings([user])
+    print("RESULT OF EMBEDDING: \n" + f"{result}")
     return user_id in result.regenerated_user_ids
 
 
