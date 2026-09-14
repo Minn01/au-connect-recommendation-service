@@ -21,6 +21,7 @@ wheels/
 
 # macOS
 .DS_Store
+src/.DS_Store
 
 # Coverage reports
 .coverage

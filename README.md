@@ -1,143 +1,101 @@
-# AU Connect — Recommendation Service
+# AU Connect Recommendation Service
 
-The **AU Connect Recommendation Service** is a dedicated service responsible for helping users discover relevant content on the AU Connect platform.
+This repository contains the recommendation service for **AU Connect**. It recommends users who may be useful or relevant connections based on profile similarity and mutual connections.
 
-## Purpose
+> This project is still under development. More features and documentation will be added later.
 
-As AU Connect grows, users will have more posts and content available to them. Simply displaying content in chronological order can make it harder for users to discover posts that are relevant or interesting to them.
+## Members
 
-The Recommendation Service is intended to address this by analyzing available information about users and content and producing **personalized content recommendations**.
+- Thant Zin Min
+- Min Thant
+- Si Thu Naung
 
-Instead of requiring the main AU Connect application to handle recommendation logic itself, this functionality is separated into its own service.
+## Current Features
 
-## What It Does
+- Recommends connection candidates for a user
+- Excludes existing connections and pending requests
+- Compares profile title, about, experience, education, and location
+- Includes mutual connections in the ranking score
+- Stores profile embeddings in MongoDB for reuse
+- Refreshes embeddings when relevant profile information changes
+- Loads users and related profile data in batches
+- Supports backfilling embeddings for existing users
 
-The service is designed to:
+## Technologies
 
-- Recommend relevant posts and content to users
-- Help users discover content they may be interested in
-- Provide a more personalized experience on AU Connect
-- Reduce the amount of recommendation-specific logic handled by the main application
-- Allow the recommendation system to be improved independently as the platform develops
+- Python
+- FastAPI
+- MongoDB
+- Sentence Transformers
+- `uv` for dependency and environment management
 
-## How It Fits Into AU Connect
+## Setup
 
-The Recommendation Service is one of several supporting services that make up the AU Connect platform.
+Install the project dependencies:
 
-```text
-                         AU Connect
-                             │
-          ┌──────────────────┼──────────────────┐
-          │                  │                  │
-          ▼                  ▼                  ▼
-    Main Application   Admin Application   Supporting Services
-                                                 │
-                              ┌──────────────────┴──────────────┐
-                              │                                 │
-                              ▼                                 ▼
-                    Recommendation Service          Video Thumbnail Function
+```bash
+uv sync
 ```
 
-The main AU Connect application can request recommendations from this service and use the results to display personalized content to users.
+Add the required environment variables to your `.env` file:
 
-## Why Have a Separate Service?
+```env
+MONGODB_URI=your_mongodb_connection_string
+INTERNAL_API_KEY=your_internal_service_key
+```
 
-Recommendation systems can become increasingly complex as a platform grows. Keeping this functionality separate allows AU Connect to develop its recommendation capabilities without making the main application responsible for all of the associated processing and logic.
+Start the development server:
 
-This separation also makes it possible to improve or replace the recommendation approach in the future without requiring major changes to the rest of the AU Connect platform.
+```bash
+uv run fastapi dev src/au_connect_recommendation_service/main.py
+```
 
-## Future Development
+The API documentation will be available at:
 
-The Recommendation Service is intended to evolve alongside AU Connect.
+```text
+http://127.0.0.1:8000/docs
+```
 
-Future improvements may include:
+## Main Endpoints
 
-- More personalized recommendations
-- Better understanding of user interests
-- Improved content ranking
-- Using user interactions and engagement to improve recommendations
-- More advanced recommendation algorithms
-- Additional recommendation types
+### Service Status
 
-The technical implementation and recommendation approach may change as the project develops.
+```http
+GET /status
+```
 
----
+Checks whether the service, database, and embedding model are available.
 
-**AU Connect — Recommendation Service**
-
-Helping AU Connect users discover content that is relevant to them.
-
-## Hybrid profile similarity
-
-Profile similarity uses title (25%), about (25%), experience titles (25%),
-education (15%), and location (10%). Education compares each pair of records
-using field of study (60%), degree (20%), and school (20%), then averages the
-best matches in both directions. Experience titles use the same list matching.
-Company names are not compared. Text and record duplicates are removed after
-trimming and case folding. Degree aliases are intentionally limited to explicit
-variants in `DEGREE_ALIASES`; unknown degrees use normalized exact matching.
-
-Profile embeddings are stored in MongoDB's `UserEmbedding` collection. A
-recommendation request loads all required documents in one query, reuses documents
-whose model identity and profile source hash still match, and batch-encodes only
-missing or stale users. Model inference runs in a worker thread. Normalized vectors
-are reused for dot-product cosine scoring. Both sides use `query: ` per the
-[E5 model guidance](https://huggingface.co/intfloat/multilingual-e5-small#faq).
-Negative cosine scores are clipped to zero and scores are bounded by one.
-There is no universal match threshold.
-
-Missing components return `None`; a comparable mismatch returns zero. Weights
-are redistributed only over available components (also within education pairs).
-Entries with no comparable fields are omitted from list matching. With no
-comparable information, the public async function returns `0.0`.
-`profile_similarity_breakdown()` exposes component scores, effective weights,
-available-weight coverage, and the final score for internal debugging only.
-Coverage measures available top-level weights, not completeness within records.
-Sparse profiles can score highly despite limited evidence; scores are not
-probabilities.
-
-Experience and education are loaded from their separate MongoDB collections in
-two batch queries for the current user and all candidates. The outer recommendation
-score remains 60% mutual connections and 40% profile similarity.
-
-The main app should request a refresh after saving a user's title, about,
-experience, or education:
+### Refresh User Embedding
 
 ```http
 PUT /internal/users/{user_id}/embedding
-x-internal-service-key: <INTERNAL_API_KEY>
 ```
 
-The endpoint validates that the user exists and returns `202 Accepted` after
-scheduling a background refresh. Repeated refreshes are idempotent when the
-normalized profile hash and embedding model identity are unchanged. Profile
-updates are eventually consistent while the background task runs.
+Schedules a background refresh of a user's stored profile embeddings. This internal endpoint requires the `x-internal-service-key` header.
 
-Backfill existing active users in bounded batches:
+## Backfill Existing Users
+
+Generate stored embeddings for existing active users:
 
 ```bash
 uv run python scripts/backfill_user_embeddings.py --batch-size 100
 ```
 
-The service creates a unique index on `UserEmbedding.userId` at startup. The
-authoritative Prisma schema in the main app should also define `@@index([userId])`
-on `Experience` and `Education`; `schema.txt` in this repository is only a schema
-reference and is not modified by this service.
+The backfill reads existing profile data and writes only to the separate `UserEmbedding` collection.
 
-Run the fast mocked tests separately from model inference:
+## Tests
 
-```bash
-uv run python -m unittest discover -s tests -p 'test_similarity.py' -v
-uv run python -m unittest discover -s tests -p 'test_connection_recommender.py' -v
-```
-
-Run the real-model profile example and print both component breakdowns:
+Run the test suite with:
 
 ```bash
-uv run python -m unittest discover -s tests/integration -v
+uv run python -m unittest discover -s tests -v
 ```
 
-The example asserts only that a software profile ranks above a culinary profile,
-not exact scores. It uses the existing model cache (or downloads the model if
-needed). The existing `tests/test_embedding_model.py` is another real-model test;
-plain discovery of the entire `tests` directory includes that test.
+## Planned Work
+
+- Connect profile updates from the main AU Connect application
+- Improve error handling and retry behavior
+- Add embedding cleanup when a user is deleted
+- Evaluate recommendations with realistic user profiles
+- Tune ranking weights based on testing and feedback
