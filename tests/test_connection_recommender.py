@@ -3,6 +3,8 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("MONGODB_URI", "mongodb://localhost:27017")
+os.environ.setdefault("MONGODB_DB", "au_connect")
+os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key")
 
 from bson import ObjectId
 
@@ -163,7 +165,7 @@ class RecommendationPipelineTests(unittest.IsolatedAsyncioTestCase):
             patch.object(connection_recommender, "load_profile_relations", new=AsyncMock()) as load_relations,
             patch.object(connection_recommender, "prepare_profile_embeddings", new=AsyncMock()) as prepare,
         ):
-            self.assertEqual(await connection_recommender.get_connection_recommendations(current.id), [])
+            self.assertEqual(await connection_recommender.get_connection_recommendations(current.id), {"recommendations": [], "nextCursor": None, "hasMore": False})
         load_relations.assert_not_awaited()
         prepare.assert_not_awaited()
 
@@ -240,8 +242,8 @@ class RecommendationPipelineTests(unittest.IsolatedAsyncioTestCase):
             get_candidate_users.await_args.kwargs["excluded_user_ids"],
             {connected_user_id, pending_user_id},
         )
-        self.assertEqual([item["user"].id for item in recommendations], [candidates[1].id, candidates[0].id])
-        self.assertEqual(len(recommendations), 2)
+        self.assertEqual([item["user"]["id"] for item in recommendations["recommendations"]], [candidates[1].id, candidates[0].id])
+        self.assertEqual(len(recommendations["recommendations"]), 2)
 
 
 if __name__ == "__main__":

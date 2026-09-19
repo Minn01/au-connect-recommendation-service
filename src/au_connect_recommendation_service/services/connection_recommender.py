@@ -1,5 +1,7 @@
 from bson import ObjectId
 
+from au_connect_recommendation_service.core.recommendation_cursor import decode_cursor, encode_cursor
+
 from au_connect_recommendation_service.db.mongodb import db
 from au_connect_recommendation_service.models.user import User, map_user
 from au_connect_recommendation_service.services.profile_embeddings import (
@@ -16,14 +18,18 @@ from au_connect_recommendation_service.services.user_profiles import (
 async def get_connection_recommendations(
     user_id: str,
     limit: int = 10,
+    cursor: str | None = None,
 ):
-    if limit <= 0:
-        return []
+    if type(limit) is not int or not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50")
+    user_id = str(ObjectId(user_id))
+    boundary = decode_cursor(cursor, user_id) if cursor is not None else None
+    empty_page = {"recommendations": [], "nextCursor": None, "hasMore": False}
 
     # Find current user
     current_user = await get_current_user(user_id)
     if current_user is None:
-        return []
+        return empty_page
 
     # Remove existing connections and pending requests from recommendations.
     connected_user_ids = await get_connected_users(user_id)
@@ -36,7 +42,7 @@ async def get_connection_recommendations(
     )
 
     if not candidates:
-        return []
+        return empty_page
 
     await load_profile_relations([current_user, *candidates])
     embeddings = await prepare_profile_embeddings([current_user, *candidates])
@@ -61,13 +67,25 @@ async def get_connection_recommendations(
         final_score = mutual_score * 0.60 + profile_score * 0.40
         recommendations.append(
             {
-                "user": candidate,
+                "user": {"id": candidate.id},
                 "score": final_score,
             }
         )
 
-    recommendations.sort(key=lambda recommendation: recommendation["score"], reverse=True)
-    return recommendations[:limit]
+    recommendations.sort(key=lambda item: (-item["score"], item["user"]["id"]))
+    if boundary is not None:
+        score, candidate_id = boundary
+        recommendations = [
+            item for item in recommendations
+            if (-item["score"], item["user"]["id"]) > (-score, candidate_id)
+        ]
+    page = recommendations[:limit]
+    has_more = len(recommendations) > limit
+    next_cursor = (
+        encode_cursor(user_id, page[-1]["score"], page[-1]["user"]["id"])
+        if has_more else None
+    )
+    return {"recommendations": page, "nextCursor": next_cursor, "hasMore": has_more}
 
 
 async def get_current_user(user_id: str) -> User | None:
@@ -107,7 +125,6 @@ async def get_connected_users(user_id: str) -> set[str]:
 async def get_candidate_users(
     curr_user_id: str,
     excluded_user_ids: set[str],
-    limit: int = 100,
 ):
     user_docs = db["User"]
 
@@ -121,8 +138,7 @@ async def get_candidate_users(
                 "accountStatus": "ACTIVE",
             }
         )
-        .limit(limit)
-        .to_list(length=limit)
+        .to_list(length=None)
     )
 
     return [map_user(user) for user in candidates]
