@@ -19,9 +19,15 @@ from au_connect_recommendation_service.services.profile_embeddings import (
 )
 
 
+from au_connect_recommendation_service.routes.jobs import router as jobs_router
+from au_connect_recommendation_service.routes.internal_job_embeddings import router as internal_jobs_router
+from au_connect_recommendation_service.services.job_embeddings import ensure_job_embedding_index
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     await ensure_user_embedding_index()
+    await ensure_job_embedding_index()
     await run_in_threadpool(get_embedding_model)
     yield
 
@@ -31,6 +37,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(jobs_router)
+app.include_router(internal_jobs_router)
 app.include_router(connections_router)
 app.include_router(internal_embeddings_router)
 
