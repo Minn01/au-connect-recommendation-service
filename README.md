@@ -41,7 +41,7 @@ Add the required environment variables to your `.env` file:
 
 ```env
 MONGODB_URL=your_mongodb_connection_string
-MONGODB_DB=au_connect
+MONGODB_DB=au-connect
 INTERNAL_API_KEY=your_internal_service_key
 ```
 
