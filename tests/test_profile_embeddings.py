@@ -4,7 +4,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-os.environ.setdefault("MONGODB_URI", "mongodb://localhost:27017")
+os.environ.setdefault("MONGODB_URL", "mongodb://localhost:27017")
 
 from bson import ObjectId
 
