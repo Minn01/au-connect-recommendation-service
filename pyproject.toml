@@ -12,6 +12,7 @@ dependencies = [
     "pymongo>=4.17.0",
     "python-dotenv>=1.2.3",
     "sentence-transformers>=6.0.1",
+    "torch",
     "uvicorn[standard]>=0.52.4",
 ]
 
@@ -21,3 +22,11 @@ au-connect-recommendation-service = "au_connect_recommendation_service:main"
 [build-system]
 requires = ["uv_build>=0.12.8,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
