@@ -3,8 +3,8 @@ import unittest
 from contextlib import ExitStack
 from unittest.mock import AsyncMock, patch
 
-os.environ.setdefault("MONGODB_URI", "mongodb://localhost:27017")
-os.environ.setdefault("MONGODB_DB", "au_connect")
+os.environ.setdefault("MONGODB_URL", "mongodb://localhost:27017")
+os.environ.setdefault("MONGODB_DB", "au-connect")
 os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key")
 
 from bson import ObjectId
