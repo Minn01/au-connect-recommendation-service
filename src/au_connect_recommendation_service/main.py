@@ -46,3 +46,9 @@ async def health():
         "database": "connected",
         "embedding_model": "loaded",
     }
+
+@app.get("/hello")
+async def hello():
+    return {
+        "message": "Hello from AU Connect Recommendation Service!"
+    }
