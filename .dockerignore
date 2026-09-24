@@ -6,5 +6,4 @@ __pycache__
 .python-version
 .env
 .env.*
-README.md
 .DS_Store
